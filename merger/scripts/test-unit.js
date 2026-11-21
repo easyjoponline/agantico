@@ -54,7 +54,6 @@ async function genClip(out, opts) {
 
 async function main() {
   console.log("— اختبار الوحدات: محرك الدمج + التخزين —");
-  const ffprobe = require("ffprobe-static").path;
 
   // 1) توليد مقطعين مختلفي الدقة (أ بلا صوت)
   const tmpA = path.join(os.tmpdir(), `unit-a-${Date.now()}.mp4`);
@@ -73,7 +72,7 @@ async function main() {
   check("الدقة = أكبر دقة مدخل (640×360)", merged.resolution === "640x360");
   check("المدة ≈ مجموع المدد (5 ثوانٍ)", Math.abs(merged.duration - 5) < 1.0, `(فعلي: ${merged.duration})`);
 
-  const outMeta = await probeSource(ffprobe, merged.outPath);
+  const outMeta = await probeSource(FFMPEG, merged.outPath);
   check("الناتج يحتوي صوتًا (المصدر الصامت أُكمل بمسار صامت)", outMeta.hasAudio === true);
   check("الدقة زوجية ومحدودة بـ 1080p", outMeta.width % 2 === 0 && outMeta.height % 2 === 0 && outMeta.width <= 1920);
   check("بث التقدم يعمل (قيم 40–90 مرصودة)", progressSeen.some((p) => p >= 40 && p <= 90));
