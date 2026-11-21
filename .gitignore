@@ -1,0 +1,23 @@
+# الاعتمادات
+node_modules/
+.pnp
+.pnp.*
+
+# بناء Next.js
+.next/
+out/
+next-env.d.ts
+*.tsbuildinfo
+
+# أسرار — لا تُرفع إلى Git إطلاقًا (قاعدة ذهبية 11)
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel
+
+# سجلات وملفات مؤقتة
+*.log
+.DS_Store
+tmp/

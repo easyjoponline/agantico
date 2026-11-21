@@ -1,0 +1,28 @@
+@import "tailwindcss";
+
+/* الخط العربي الافتراضي */
+body {
+  font-family: "Cairo", "Segoe UI", Tahoma, system-ui, sans-serif;
+}
+
+/* شريط تقدم */
+.progress-track {
+  background: rgba(148, 163, 184, 0.2);
+  border-radius: 9999px;
+  overflow: hidden;
+}
+.progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #06b6d4, #8b5cf6);
+  transition: width 0.5s ease;
+}
+
+/* حركة نبض للشارات الحية */
+@keyframes pulse-soft {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.55; }
+}
+.animate-pulse-soft {
+  animation: pulse-soft 1.6s ease-in-out infinite;
+}
