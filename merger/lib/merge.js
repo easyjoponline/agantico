@@ -1,4 +1,4 @@
-// ─── محرك الدمج (ffmpeg + ffprobe) — جودة عالية إلزامية (قسم 14.4) ───
+// ─── محرك الدمج (ffmpeg فقط — بدون ffprobe لتقليل حجم وظيفة Vercel) ───
 const { spawn } = require("node:child_process");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -7,7 +7,6 @@ const os = require("node:os");
 const { LIMITS } = require("./util");
 
 const FFMPEG_PATH = require("ffmpeg-static");
-const FFPROBE_PATH = require("ffprobe-static").path;
 
 // ثنائي ffmpeg قد يفقد صلاحية التنفيذ في الاستضافة: انسخه إلى /tmp بصلاحية 755
 function ensureExecutable(bin, name) {
@@ -50,30 +49,44 @@ function run(cmd, args, onStdoutLine) {
   });
 }
 
-// ─── فحص المصدر بـ ffprobe ───
+// ─── فحص المصدر بـ ffmpeg نفسه (بدل ffprobe) ───
+// ffmpeg بلا ملف إخراج يطبع الميتاداتا على stderr ويخرج بالرمز 1 — لذا نتجاهل رمز الخروج.
+function probeRaw(bin, args) {
+  return new Promise((resolve, reject) => {
+    const p = spawn(bin, args, { stdio: ["ignore", "pipe", "pipe"] });
+    let stdout = "";
+    let stderr = "";
+    p.stdout.on("data", (d) => (stdout += d.toString()));
+    p.stderr.on("data", (d) => {
+      stderr += d.toString();
+      if (stderr.length > 200_000) stderr = stderr.slice(-100_000);
+    });
+    p.on("error", reject);
+    p.on("close", () => resolve({ stdout, stderr }));
+  });
+}
+
 async function probeSource(bin, filePath) {
-  const { stdout } = await run(bin, [
-    "-v", "error",
-    "-print_format", "json",
-    "-show_format", "-show_streams",
-    filePath,
-  ]);
-  const meta = JSON.parse(stdout);
-  const v = meta.streams.find((s) => s.codec_type === "video");
-  const a = meta.streams.find((s) => s.codec_type === "audio");
-  if (!v) throw new Error("المصدر لا يحتوي مسار فيديو صالح");
-  const duration = Number(v.duration || meta.format?.duration || 0);
+  const { stderr } = await probeRaw(bin, ["-hide_banner", "-i", filePath]);
+  const durMatch = stderr.match(/Duration:\s*(\d+):(\d+):(\d+(?:\.\d+)?)/);
+  const duration = durMatch
+    ? Number(durMatch[1]) * 3600 + Number(durMatch[2]) * 60 + Number(durMatch[3])
+    : 0;
+  const streamLines = stderr.split("\n").filter((l) => l.includes("Stream #"));
+  const videoLine = streamLines.find((l) => l.includes("Video:"));
+  if (!videoLine) throw new Error("المصدر لا يحتوي مسار فيديو صالح");
+  // الأبعاد تظهر بعد فاصلة ومسافة (", 1920x1080 [") — الصيغة تستبعد نصوصًا مثل 0x31637631
+  const res = videoLine.match(/, (\d{2,5})x(\d{2,5})[,\s\[]/);
+  if (!res) throw new Error("تعذر قراءة أبعاد المصدر");
   let fps = 30;
-  if (v.avg_frame_rate && v.avg_frame_rate !== "0/0") {
-    const [n, d] = v.avg_frame_rate.split("/").map(Number);
-    if (n && d) fps = n / d;
-  }
+  const fpsMatch = videoLine.match(/([\d.]+)\s*fps/);
+  if (fpsMatch && Number(fpsMatch[1]) > 0) fps = Number(fpsMatch[1]);
   return {
-    width: v.width,
-    height: v.height,
+    width: Number(res[1]),
+    height: Number(res[2]),
     fps: Math.min(Math.max(fps, 1), 60),
     duration: Number.isFinite(duration) ? duration : 0,
-    hasAudio: Boolean(a),
+    hasAudio: streamLines.some((l) => l.includes("Audio:")),
   };
 }
 
@@ -112,13 +125,12 @@ function evenUp(n) {
 // ─── الدمج الكامل: توحيد كل المصادر ثم concat ثم ترميز نهائي ───
 async function mergeVideos({ sources, onProgress }) {
   const ffmpeg = ensureExecutable(FFMPEG_PATH, "ffmpeg-x");
-  const ffprobe = ensureExecutable(FFPROBE_PATH, "ffprobe-x");
 
   // 1) فحص كل مصدر (المصادر على القراءة المحلية في /tmp)
   const metas = [];
   for (const src of sources) {
     onProgress?.(8, "فحص المصادر");
-    metas.push(await probeSource(ffprobe, src.path));
+    metas.push(await probeSource(ffmpeg, src.path));
   }
   const totalDuration = metas.reduce((a, m) => a + m.duration, 0);
   if (totalDuration > LIMITS.maxTotalDurationSec) {
